@@ -5,6 +5,7 @@ from app.sheets.service import (
     delete_row,
     delete_sheet,
     write_booking,
+    write_booking_external,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "delete_row",
     "delete_sheet",
     "write_booking",
+    "write_booking_external",
 ]

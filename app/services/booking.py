@@ -104,6 +104,19 @@ async def book_slot(
         return slot
 
 
+async def admin_book_external(slot_id: int, admin_tg_id: int, client_name: str) -> Slot:
+    """Admin books a slot on behalf of an offline client. No hyperlink in Sheets."""
+    async with session_scope() as s:
+        slot = await SlotRepo(s).book_for_external(slot_id, admin_tg_id, client_name)
+        date_rec = await SlotDateRepo(s).get(slot.date_id)
+        if date_rec is None:
+            raise SlotNotFound(slot_id)
+        await sheets.write_booking_external(
+            date_rec.sheet_id, slot.row_index, client_name, slot.booked_at  # type: ignore[arg-type]
+        )
+        return slot
+
+
 async def unbook_slot(slot_id: int, tg_id: int) -> Slot:
     """Atomically free the slot in DB and clear the Sheets row cells."""
     async with session_scope() as s:

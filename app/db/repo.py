@@ -144,6 +144,21 @@ class SlotRepo:
             raise AlreadyBooked(slot_id)
         slot.booked_by_tg_id = tg_id
         slot.booked_at = datetime.now(UTC)
+        slot.external_client_name = None
+        await self.session.flush()
+        return slot
+
+    async def book_for_external(
+        self, slot_id: int, admin_tg_id: int, client_name: str
+    ) -> Slot:
+        slot = await self.session.get(Slot, slot_id, with_for_update=True)
+        if slot is None:
+            raise SlotNotFound(slot_id)
+        if slot.booked_by_tg_id is not None:
+            raise AlreadyBooked(slot_id)
+        slot.booked_by_tg_id = admin_tg_id
+        slot.external_client_name = client_name
+        slot.booked_at = datetime.now(UTC)
         await self.session.flush()
         return slot
 
@@ -155,6 +170,7 @@ class SlotRepo:
             raise NotYourBooking(slot_id)
         slot.booked_by_tg_id = None
         slot.booked_at = None
+        slot.external_client_name = None
         await self.session.flush()
         return slot
 

@@ -9,6 +9,7 @@ from app.config import settings
 from app.db import init_db
 from app.handlers import common
 from app.handlers.admin import add_date as adm_add_date
+from app.handlers.admin import book_external as adm_book_ext
 from app.handlers.admin import delete as adm_delete
 from app.handlers.admin import view_dates as adm_view
 from app.handlers.client import book, browse, feedback, my_bookings, subscribe
@@ -39,6 +40,7 @@ async def main() -> None:
     dp.include_router(common.router)
     dp.include_router(adm_add_date.router)
     dp.include_router(adm_view.router)
+    dp.include_router(adm_book_ext.router)
     dp.include_router(adm_delete.router)
     dp.include_router(browse.router)
     dp.include_router(book.router)

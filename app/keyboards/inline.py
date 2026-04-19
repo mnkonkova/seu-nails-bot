@@ -18,6 +18,7 @@ CLIENT_SUBSCRIBE = "🔔 Подписка"
 ADMIN_ADD_DATE = "➕ Добавить дату"
 ADMIN_VIEW_DATES = "📋 Активные даты"
 ADMIN_DELETE = "🗑 Удалить"
+ADMIN_BOOK_EXTERNAL = "📝 Записать клиента"
 
 
 def client_menu() -> ReplyKeyboardMarkup:
@@ -34,6 +35,7 @@ def admin_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=ADMIN_ADD_DATE), KeyboardButton(text=ADMIN_VIEW_DATES)],
+            [KeyboardButton(text=ADMIN_BOOK_EXTERNAL)],
             [KeyboardButton(text=ADMIN_DELETE)],
         ],
         resize_keyboard=True,

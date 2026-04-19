@@ -97,6 +97,20 @@ def _sync_write_booking(
 
 
 @retryable
+def _sync_write_booking_external(
+    sheet_id: int, row_index: int, client_name: str, booked_at: datetime
+) -> None:
+    ss = get_spreadsheet()
+    ws = ss.get_worksheet_by_id(sheet_id)
+    ws.update(
+        range_name=f"B{row_index}:C{row_index}",
+        values=[[client_name, _to_msk(booked_at)]],
+        value_input_option="RAW",
+    )
+    _set_cell_link(ws, row_index, 1, None)
+
+
+@retryable
 def _sync_clear_booking(sheet_id: int, row_index: int) -> None:
     ss = get_spreadsheet()
     ws = ss.get_worksheet_by_id(sheet_id)
@@ -166,6 +180,12 @@ async def write_booking(
     await asyncio.to_thread(
         _sync_write_booking, sheet_id, row_index, username, tg_id, first_name, last_name, booked_at
     )
+
+
+async def write_booking_external(
+    sheet_id: int, row_index: int, client_name: str, booked_at: datetime
+) -> None:
+    await asyncio.to_thread(_sync_write_booking_external, sheet_id, row_index, client_name, booked_at)
 
 
 async def clear_booking(sheet_id: int, row_index: int) -> None:

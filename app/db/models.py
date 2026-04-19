@@ -71,6 +71,7 @@ class Slot(Base):
         nullable=True,
     )
     booked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    external_client_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     slot_date: Mapped[SlotDate] = relationship(back_populates="slots")
 

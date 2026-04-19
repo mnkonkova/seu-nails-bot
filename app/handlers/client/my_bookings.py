@@ -19,10 +19,13 @@ _log = logging.getLogger(__name__)
 router = Router(name="client.my_bookings")
 
 
-def _render_bookings(items: list[tuple[int, str, str]]) -> str:
+def _render_bookings(items: list[tuple[int, str, str, str | None]]) -> str:
     lines = ["<b>Твои записи:</b>"]
-    for _, day_str, time_str in items:
-        lines.append(f"• {day_str} — {time_str}")
+    for _, day_str, time_str, ext in items:
+        line = f"• {day_str} — {time_str}"
+        if ext:
+            line += f" (клиент: {ext})"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -35,11 +38,16 @@ async def show_my_bookings(message: Message) -> None:
         if not slots:
             await message.answer("У тебя нет активных записей.")
             return
-        items = []
+        items: list[tuple[int, str, str, str | None]] = []
         for sl in slots:
             date_rec = await SlotDateRepo(s).get(sl.date_id)
             items.append(
-                (sl.id, fmt_date(date_rec.date), sl.time.strftime("%H:%M"))  # type: ignore[union-attr]
+                (
+                    sl.id,
+                    fmt_date(date_rec.date),  # type: ignore[union-attr]
+                    sl.time.strftime("%H:%M"),
+                    sl.external_client_name,
+                )
             )
 
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -47,11 +55,11 @@ async def show_my_bookings(message: Message) -> None:
     buttons = [
         [
             InlineKeyboardButton(
-                text=f"❌ Отменить {d} {t}",
+                text=f"❌ {d} {t}" + (f" ({ext[:20]})" if ext else ""),
                 callback_data=SlotCB(action="cancel", slot_id=sid).pack(),
             )
         ]
-        for sid, d, t in items
+        for sid, d, t, ext in items
     ]
     await message.answer(
         _render_bookings(items),
