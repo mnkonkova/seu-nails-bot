@@ -13,6 +13,7 @@ from app.handlers.admin import delete as adm_delete
 from app.handlers.admin import view_dates as adm_view
 from app.handlers.client import book, browse, feedback, my_bookings, subscribe
 from app.middlewares.user_ctx import UserCtxMiddleware
+from app.services.scheduler import create_scheduler, purge_past_dates
 from app.utils.logging import setup_logging
 
 
@@ -22,6 +23,11 @@ async def main() -> None:
 
     await init_db()
     log.info("db ready at %s", settings.db_path)
+
+    try:
+        await purge_past_dates()
+    except Exception:
+        log.exception("startup purge failed; continuing")
 
     bot = Bot(
         token=settings.bot_token,
@@ -40,8 +46,13 @@ async def main() -> None:
     dp.include_router(feedback.router)
     dp.include_router(subscribe.router)
 
+    scheduler = create_scheduler()
+    scheduler.start()
+    log.info("scheduler started; daily purge at 00:05 MSK")
+
     log.info("lubabot starting, admins=%s", sorted(settings.admin_usernames))
     try:
         await dp.start_polling(bot)
     finally:
+        scheduler.shutdown(wait=False)
         await bot.session.close()
