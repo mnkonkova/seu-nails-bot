@@ -1,0 +1,20 @@
+services:
+  bot:
+    build:
+      context: .
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    container_name: lubabot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Europe/Moscow
+    volumes:
+      - ./data:/app/data
+      - ./credentials/gsheets.json:/app/credentials/gsheets.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
