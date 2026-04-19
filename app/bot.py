@@ -3,6 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ErrorEvent
 
@@ -51,12 +52,15 @@ async def main() -> None:
     dp.include_router(subscribe.router)
 
     @dp.errors()
-    async def on_global_error(event: ErrorEvent) -> None:
+    async def on_global_error(event: ErrorEvent) -> bool:
+        exc = event.exception
+        if isinstance(exc, TelegramBadRequest) and "message is not modified" in str(exc):
+            # Benign: user double-tapped a button and Telegram refused a no-op edit.
+            return True
         upd_id = event.update.update_id if event.update is not None else "?"
-        log.exception(
-            "unhandled error on update=%s: %s", upd_id, event.exception
-        )
-        await report_error(bot, event.exception, where=f"unhandled:update={upd_id}")
+        log.exception("unhandled error on update=%s: %s", upd_id, exc)
+        await report_error(bot, exc, where=f"unhandled:update={upd_id}")
+        return True
 
     scheduler = create_scheduler(bot)
     scheduler.start()
