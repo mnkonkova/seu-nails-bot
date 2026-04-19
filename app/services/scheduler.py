@@ -22,8 +22,9 @@ async def purge_past_dates() -> None:
     _log.info("scheduler: purging %d past dates", len(items))
     for date_id, day in items:
         try:
-            await delete_date(date_id)
-            _log.info("scheduler: purged %s (id=%d)", day, date_id)
+            ok, _notifications = await delete_date(date_id)  # past dates: skip notify
+            if ok:
+                _log.info("scheduler: purged %s (id=%d)", day, date_id)
         except Exception:
             _log.exception("scheduler: failed to purge %s (id=%d)", day, date_id)
 

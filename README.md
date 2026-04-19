@@ -138,6 +138,18 @@ Sheets-операции оборачиваются в транзакцию БД:
     - «Кто записан»: `@username` (hyperlink → `t.me/username`), либо «Имя Фамилия» (hyperlink → `tg://user?id=…`), либо имя внешнего клиента без ссылки.
   - Постоянный лист `Feedback`: `Дата | TG | Текст`.
 
+## Тесты
+
+Юнит-тесты на сервисный слой (in-memory SQLite, моки Sheets) + контракт-тесты хендлера на уведомления:
+
+```bash
+sudo docker run --rm --network=host -v "$(pwd)":/src -w /src \
+  python:3.11-slim \
+  bash -c "pip install --quiet --index-url https://pypi.yandex-team.ru/simple/ -e '.[dev]' && python -m pytest tests/ -v"
+```
+
+Покрывают: возврат списка `BookingNotification` из `delete_date`/`delete_slot`/`admin_clear_slot`, фильтрацию внешних клиентов из нотификаций, пере-бронирование после `clear`, и что `_notify()` не роняет админский флоу при сбое `bot.send_message`.
+
 ## Смок-тест
 
 Прогоняет create_date → book → unbook → rebook (без username) → submit_feedback → delete_date через реальный Google Sheets API, паузя на Enter между шагами для визуальной проверки.

@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Sequence
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, time
 
 from sqlalchemy import update
 
@@ -21,12 +22,17 @@ from app.sheets import service as sheets
 _log = logging.getLogger(__name__)
 
 
-async def create_date(day: date, hours: Sequence[int]) -> SlotDate:
-    """Create a new date with the given hours as slots + a matching Sheets tab.
+@dataclass(slots=True)
+class BookingNotification:
+    """Info needed to notify a real TG booker that their booking was cancelled."""
 
-    Sheet is created first (external, can fail). On DB failure we best-effort
-    delete the orphan sheet. Broadcast to subscribers is the handler's job.
-    """
+    tg_id: int
+    day: date
+    time: time
+
+
+async def create_date(day: date, hours: Sequence[int]) -> SlotDate:
+    """Create a new date with the given hours as slots + a matching Sheets tab."""
     sheet_id = await sheets.create_sheet_for_date(day, hours)
     try:
         async with session_scope() as s:
@@ -43,27 +49,39 @@ async def create_date(day: date, hours: Sequence[int]) -> SlotDate:
         raise
 
 
-async def delete_date(date_id: int) -> bool:
-    """Delete a date and all its slots (DB cascade) + the Sheets tab atomically."""
+async def delete_date(date_id: int) -> tuple[bool, list[BookingNotification]]:
+    """Delete a date + sheet tab. Returns (ok, notifications) — one entry per real
+    (non-external) booker so the caller can push them a message."""
     async with session_scope() as s:
         date_rec = await SlotDateRepo(s).get(date_id)
         if date_rec is None:
-            return False
+            return False, []
+        day = date_rec.date
         sheet_id = date_rec.sheet_id
+        notifications = [
+            BookingNotification(sl.booked_by_tg_id, day, sl.time)  # type: ignore[arg-type]
+            for sl in date_rec.slots
+            if sl.booked_by_tg_id is not None and sl.external_client_name is None
+        ]
         await SlotDateRepo(s).delete(date_id)
         await sheets.delete_sheet(sheet_id)
-        return True
+    return True, notifications
 
 
-async def delete_slot(slot_id: int) -> bool:
-    """Delete one slot, shift row_index for later slots, delete the Sheets row."""
+async def delete_slot(slot_id: int) -> tuple[bool, BookingNotification | None]:
+    """Delete a single slot, shift later rows. Returns (ok, notification) —
+    notification is set if a real TG user was booked."""
     async with session_scope() as s:
         slot = await SlotRepo(s).get(slot_id)
         if slot is None:
-            return False
+            return False, None
         date_rec = await SlotDateRepo(s).get(slot.date_id)
         if date_rec is None:
-            return False
+            return False, None
+        slot_time = slot.time
+        slot_day = date_rec.date
+        booker_tg_id = slot.booked_by_tg_id
+        external_name = slot.external_client_name
         sheet_id = date_rec.sheet_id
         row_index = slot.row_index
         date_id = slot.date_id
@@ -75,7 +93,10 @@ async def delete_slot(slot_id: int) -> bool:
             .values(row_index=SlotModel.row_index - 1)
         )
         await sheets.delete_row(sheet_id, row_index)
-        return True
+    notification = None
+    if booker_tg_id is not None and external_name is None:
+        notification = BookingNotification(booker_tg_id, slot_day, slot_time)
+    return True, notification
 
 
 async def book_slot(
@@ -117,22 +138,29 @@ async def admin_book_external(slot_id: int, admin_tg_id: int, client_name: str) 
         return slot
 
 
-async def admin_clear_slot(slot_id: int) -> tuple[Slot, int | None, str | None, date]:
-    """Admin force-clears a booking. Slot stays, is rebookable. Returns the cleared
-    slot plus the former booker's tg_id, external name, and the date (for notify)."""
+async def admin_clear_slot(
+    slot_id: int,
+) -> tuple[date, time, BookingNotification | None]:
+    """Admin force-clears a booking; slot stays rebookable. Returns (day, time,
+    notification) where notification is set iff a real TG user (not external)
+    was booked."""
     async with session_scope() as s:
         existing = await SlotRepo(s).get(slot_id)
         if existing is None:
             raise SlotNotFound(slot_id)
         former_tg_id = existing.booked_by_tg_id
         former_ext = existing.external_client_name
-
+        slot_time = existing.time
         slot = await SlotRepo(s).clear(slot_id)
         date_rec = await SlotDateRepo(s).get(slot.date_id)
         if date_rec is None:
             raise SlotNotFound(slot_id)
+        slot_day = date_rec.date
         await sheets.clear_booking(date_rec.sheet_id, slot.row_index)
-        return slot, former_tg_id, former_ext, date_rec.date
+    notification = None
+    if former_tg_id is not None and former_ext is None:
+        notification = BookingNotification(former_tg_id, slot_day, slot_time)
+    return slot_day, slot_time, notification
 
 
 async def unbook_slot(slot_id: int, tg_id: int) -> Slot:

@@ -20,7 +20,12 @@ from app.keyboards.inline import (
     slots_kb,
 )
 from app.middlewares.admin_only import AdminFilter
-from app.services.booking import admin_clear_slot, delete_date, delete_slot
+from app.services.booking import (
+    BookingNotification,
+    admin_clear_slot,
+    delete_date,
+    delete_slot,
+)
 from app.utils.dates import fmt_date, today_msk
 
 _log = logging.getLogger(__name__)
@@ -28,6 +33,20 @@ _log = logging.getLogger(__name__)
 router = Router(name="admin.delete")
 router.message.filter(AdminFilter())
 router.callback_query.filter(AdminFilter())
+
+
+async def _notify(bot: Bot, n: BookingNotification, reason: str, admin_id: int) -> None:
+    """Send one cancellation push. Swallows errors — admin already got an OK."""
+    if n.tg_id == admin_id:
+        return
+    try:
+        await bot.send_message(
+            n.tg_id,
+            f"⚠️ Ваша запись на <b>{fmt_date(n.day)}</b> в "
+            f"<b>{n.time.strftime('%H:%M')}</b> отменена администратором ({reason}).",
+        )
+    except Exception:
+        _log.exception("failed to notify tg_id=%s", n.tg_id)
 
 
 @router.message(Command("del"))
@@ -136,7 +155,7 @@ async def on_confirm_clear(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot
         await cq.answer()
         return
     try:
-        cleared, booker_id, ext_name, day = await admin_clear_slot(callback_data.id)
+        day, t, notification = await admin_clear_slot(callback_data.id)
     except NotBooked:
         await cq.message.edit_text("Это окно уже свободно.")  # type: ignore[union-attr]
         await cq.answer()
@@ -147,19 +166,11 @@ async def on_confirm_clear(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot
         await cq.answer()
         return
     await cq.message.edit_text(  # type: ignore[union-attr]
-        f"✅ Окно <b>{cleared.time.strftime('%H:%M')}</b> на {fmt_date(day)} освобождено."
+        f"✅ Окно <b>{t.strftime('%H:%M')}</b> на {fmt_date(day)} освобождено."
     )
     await cq.answer()
-    # Notify the former booker unless it was an external client or admin self-clear
-    if booker_id is not None and ext_name is None and booker_id != cq.from_user.id:
-        try:
-            await bot.send_message(
-                booker_id,
-                f"⚠️ Ваша запись на {fmt_date(day)} в "
-                f"{cleared.time.strftime('%H:%M')} отменена администратором.",
-            )
-        except Exception:
-            _log.exception("failed to notify former booker tg_id=%s", booker_id)
+    if notification is not None:
+        await _notify(bot, notification, reason="окно освобождено", admin_id=cq.from_user.id)
 
 
 @router.callback_query(DelModeCB.filter(F.mode == "slots"))
@@ -200,34 +211,42 @@ async def confirm_slot(cq: CallbackQuery, callback_data: SlotCB) -> None:
 
 
 @router.callback_query(ConfirmCB.filter(F.kind == "deldate"))
-async def on_confirm_deldate(cq: CallbackQuery, callback_data: ConfirmCB) -> None:
+async def on_confirm_deldate(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot) -> None:
     if callback_data.action == "no":
         await cq.message.edit_text("Отменено.")  # type: ignore[union-attr]
         await cq.answer()
         return
     try:
-        ok = await delete_date(callback_data.id)
+        ok, notifications = await delete_date(callback_data.id)
     except Exception:
         _log.exception("delete_date failed")
         await cq.message.edit_text("Ошибка при удалении (БД или Sheets).")  # type: ignore[union-attr]
         await cq.answer()
         return
-    await cq.message.edit_text("✅ Удалено." if ok else "Дата уже была удалена.")  # type: ignore[union-attr]
+    await cq.message.edit_text(  # type: ignore[union-attr]
+        "✅ Удалено." if ok else "Дата уже была удалена."
+    )
     await cq.answer()
+    for n in notifications:
+        await _notify(bot, n, reason="дата отменена", admin_id=cq.from_user.id)
 
 
 @router.callback_query(ConfirmCB.filter(F.kind == "delslot"))
-async def on_confirm_delslot(cq: CallbackQuery, callback_data: ConfirmCB) -> None:
+async def on_confirm_delslot(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot) -> None:
     if callback_data.action == "no":
         await cq.message.edit_text("Отменено.")  # type: ignore[union-attr]
         await cq.answer()
         return
     try:
-        ok = await delete_slot(callback_data.id)
+        ok, notification = await delete_slot(callback_data.id)
     except Exception:
         _log.exception("delete_slot failed")
         await cq.message.edit_text("Ошибка при удалении (БД или Sheets).")  # type: ignore[union-attr]
         await cq.answer()
         return
-    await cq.message.edit_text("✅ Окно удалено." if ok else "Окно уже было удалено.")  # type: ignore[union-attr]
+    await cq.message.edit_text(  # type: ignore[union-attr]
+        "✅ Окно удалено." if ok else "Окно уже было удалено."
+    )
     await cq.answer()
+    if notification is not None:
+        await _notify(bot, notification, reason="окно удалено", admin_id=cq.from_user.id)
