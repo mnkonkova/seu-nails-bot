@@ -1,23 +1,26 @@
 import logging
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 
-from app.db import SlotDateRepo, SlotRepo, session_scope
+from app.db import NotBooked, SlotDateRepo, SlotRepo, session_scope
+from app.db.models import User
 from app.keyboards.inline import (
     ADMIN_DELETE,
     ConfirmCB,
     DateCB,
     DelModeCB,
     SlotCB,
+    booked_slots_kb,
     confirm_kb,
     dates_kb,
     del_mode_kb,
     slots_kb,
 )
 from app.middlewares.admin_only import AdminFilter
-from app.services.booking import delete_date, delete_slot
+from app.services.booking import admin_clear_slot, delete_date, delete_slot
 from app.utils.dates import fmt_date, today_msk
 
 _log = logging.getLogger(__name__)
@@ -69,6 +72,94 @@ async def confirm_whole(cq: CallbackQuery, callback_data: DelModeCB) -> None:
         reply_markup=confirm_kb(kind="deldate", target_id=callback_data.date_id),
     )
     await cq.answer()
+
+
+def _booker_label(slot, users_by_id: dict[int, User]) -> str:
+    if slot.external_client_name:
+        return slot.external_client_name
+    u = users_by_id.get(slot.booked_by_tg_id)
+    if u is None:
+        return f"id:{slot.booked_by_tg_id}"
+    if u.username:
+        return f"@{u.username}"
+    name = " ".join(filter(None, [u.first_name, u.last_name]))
+    return name or f"id:{u.tg_id}"
+
+
+@router.callback_query(DelModeCB.filter(F.mode == "clear"))
+async def show_booked_to_clear(cq: CallbackQuery, callback_data: DelModeCB) -> None:
+    async with session_scope() as s:
+        date_rec = await SlotDateRepo(s).get(callback_data.date_id)
+        if date_rec is None:
+            await cq.answer("Дата уже удалена.", show_alert=True)
+            return
+        booked = await SlotRepo(s).list_booked_by_date(date_rec.id)
+        if not booked:
+            await cq.message.edit_text(  # type: ignore[union-attr]
+                f"На {fmt_date(date_rec.date)} нет занятых окон."
+            )
+            await cq.answer()
+            return
+        tg_ids = list({sl.booked_by_tg_id for sl in booked if sl.booked_by_tg_id is not None})
+        users_by_id: dict[int, User] = {}
+        if tg_ids:
+            rows = await s.execute(select(User).where(User.tg_id.in_(tg_ids)))
+            users_by_id = {u.tg_id: u for u in rows.scalars().all()}
+        items = [(sl.id, sl.time, _booker_label(sl, users_by_id)) for sl in booked]
+    await cq.message.edit_text(  # type: ignore[union-attr]
+        f"Занятые окна на <b>{fmt_date(date_rec.date)}</b>. Выбери, какое освободить:",
+        reply_markup=booked_slots_kb(items, action="adm_clear"),
+    )
+    await cq.answer()
+
+
+@router.callback_query(SlotCB.filter(F.action == "adm_clear"))
+async def confirm_clear(cq: CallbackQuery, callback_data: SlotCB) -> None:
+    async with session_scope() as s:
+        slot = await SlotRepo(s).get(callback_data.slot_id)
+        if slot is None or slot.booked_by_tg_id is None:
+            await cq.answer("Это окно уже свободно.", show_alert=True)
+            return
+        date_rec = await SlotDateRepo(s).get(slot.date_id)
+    await cq.message.edit_text(  # type: ignore[union-attr]
+        f"Освободить окно <b>{slot.time.strftime('%H:%M')}</b> на "
+        f"{fmt_date(date_rec.date)}?",  # type: ignore[union-attr]
+        reply_markup=confirm_kb(kind="clearslot", target_id=callback_data.slot_id),
+    )
+    await cq.answer()
+
+
+@router.callback_query(ConfirmCB.filter(F.kind == "clearslot"))
+async def on_confirm_clear(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot) -> None:
+    if callback_data.action == "no":
+        await cq.message.edit_text("Отменено.")  # type: ignore[union-attr]
+        await cq.answer()
+        return
+    try:
+        cleared, booker_id, ext_name, day = await admin_clear_slot(callback_data.id)
+    except NotBooked:
+        await cq.message.edit_text("Это окно уже свободно.")  # type: ignore[union-attr]
+        await cq.answer()
+        return
+    except Exception:
+        _log.exception("admin_clear_slot failed")
+        await cq.message.edit_text("Ошибка при освобождении окна.")  # type: ignore[union-attr]
+        await cq.answer()
+        return
+    await cq.message.edit_text(  # type: ignore[union-attr]
+        f"✅ Окно <b>{cleared.time.strftime('%H:%M')}</b> на {fmt_date(day)} освобождено."
+    )
+    await cq.answer()
+    # Notify the former booker unless it was an external client or admin self-clear
+    if booker_id is not None and ext_name is None and booker_id != cq.from_user.id:
+        try:
+            await bot.send_message(
+                booker_id,
+                f"⚠️ Ваша запись на {fmt_date(day)} в "
+                f"{cleared.time.strftime('%H:%M')} отменена администратором.",
+            )
+        except Exception:
+            _log.exception("failed to notify former booker tg_id=%s", booker_id)
 
 
 @router.callback_query(DelModeCB.filter(F.mode == "slots"))

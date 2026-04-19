@@ -31,6 +31,12 @@ class DateAlreadyExists(Exception):
         self.day = day
 
 
+class NotBooked(Exception):
+    def __init__(self, slot_id: int) -> None:
+        super().__init__(f"Slot {slot_id} is not booked")
+        self.slot_id = slot_id
+
+
 class UserRepo:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -127,6 +133,14 @@ class SlotRepo:
         )
         return (await self.session.execute(stmt)).scalars().all()
 
+    async def list_booked_by_date(self, date_id: int) -> Sequence[Slot]:
+        stmt = (
+            select(Slot)
+            .where(Slot.date_id == date_id, Slot.booked_by_tg_id.is_not(None))
+            .order_by(Slot.time)
+        )
+        return (await self.session.execute(stmt)).scalars().all()
+
     async def list_user_bookings(self, tg_id: int, today: date) -> Sequence[Slot]:
         stmt = (
             select(Slot)
@@ -168,6 +182,19 @@ class SlotRepo:
             raise SlotNotFound(slot_id)
         if slot.booked_by_tg_id != tg_id:
             raise NotYourBooking(slot_id)
+        slot.booked_by_tg_id = None
+        slot.booked_at = None
+        slot.external_client_name = None
+        await self.session.flush()
+        return slot
+
+    async def clear(self, slot_id: int) -> Slot:
+        """Admin-level: drop a booking regardless of owner. Slot itself stays."""
+        slot = await self.session.get(Slot, slot_id, with_for_update=True)
+        if slot is None:
+            raise SlotNotFound(slot_id)
+        if slot.booked_by_tg_id is None:
+            raise NotBooked(slot_id)
         slot.booked_by_tg_id = None
         slot.booked_at = None
         slot.external_client_name = None

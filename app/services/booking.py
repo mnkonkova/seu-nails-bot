@@ -117,6 +117,24 @@ async def admin_book_external(slot_id: int, admin_tg_id: int, client_name: str) 
         return slot
 
 
+async def admin_clear_slot(slot_id: int) -> tuple[Slot, int | None, str | None, date]:
+    """Admin force-clears a booking. Slot stays, is rebookable. Returns the cleared
+    slot plus the former booker's tg_id, external name, and the date (for notify)."""
+    async with session_scope() as s:
+        existing = await SlotRepo(s).get(slot_id)
+        if existing is None:
+            raise SlotNotFound(slot_id)
+        former_tg_id = existing.booked_by_tg_id
+        former_ext = existing.external_client_name
+
+        slot = await SlotRepo(s).clear(slot_id)
+        date_rec = await SlotDateRepo(s).get(slot.date_id)
+        if date_rec is None:
+            raise SlotNotFound(slot_id)
+        await sheets.clear_booking(date_rec.sheet_id, slot.row_index)
+        return slot, former_tg_id, former_ext, date_rec.date
+
+
 async def unbook_slot(slot_id: int, tg_id: int) -> Slot:
     """Atomically free the slot in DB and clear the Sheets row cells."""
     async with session_scope() as s:

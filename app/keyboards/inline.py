@@ -125,8 +125,30 @@ def del_mode_kb(date_id: int) -> InlineKeyboardMarkup:
                     callback_data=DelModeCB(mode="slots", date_id=date_id).pack(),
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text="🧹 Освободить занятое окно",
+                    callback_data=DelModeCB(mode="clear", date_id=date_id).pack(),
+                )
+            ],
         ]
     )
+
+
+def booked_slots_kb(
+    items: Sequence[tuple[int, time, str]], action: str
+) -> InlineKeyboardMarkup:
+    """items: (slot_id, time, user_label). One row per slot."""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=f"{t.strftime('%H:%M')} — {label[:40]}",
+                callback_data=SlotCB(action=action, slot_id=sid).pack(),
+            )
+        ]
+        for sid, t, label in items
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def confirm_kb(kind: str, target_id: int) -> InlineKeyboardMarkup:
