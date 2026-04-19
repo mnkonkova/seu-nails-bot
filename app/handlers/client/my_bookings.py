@@ -1,6 +1,6 @@
 import logging
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
@@ -12,6 +12,7 @@ from app.keyboards.inline import (
     confirm_kb,
 )
 from app.services.booking import unbook_slot
+from app.services.error_reporter import report_error
 from app.utils.dates import fmt_date, today_msk
 
 _log = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ async def confirm_cancel(cq: CallbackQuery, callback_data: SlotCB) -> None:
 
 
 @router.callback_query(ConfirmCB.filter(F.kind == "unbook"))
-async def on_confirm_unbook(cq: CallbackQuery, callback_data: ConfirmCB) -> None:
+async def on_confirm_unbook(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot) -> None:
     if callback_data.action == "no":
         await cq.message.edit_text("Ок, запись остаётся.")  # type: ignore[union-attr]
         await cq.answer()
@@ -95,8 +96,10 @@ async def on_confirm_unbook(cq: CallbackQuery, callback_data: ConfirmCB) -> None
         await cq.message.edit_text("Эту запись нельзя отменить.")  # type: ignore[union-attr]
         await cq.answer()
         return
-    except Exception:
+    except Exception as e:
         _log.exception("unbook_slot failed")
+        await report_error(bot, e, where="client.my_bookings.on_confirm_unbook",
+                           extra=f"slot_id={callback_data.id} tg_id={cq.from_user.id}")
         await cq.message.edit_text("Не получилось отменить. Попробуй ещё раз.")  # type: ignore[union-attr]
         await cq.answer()
         return

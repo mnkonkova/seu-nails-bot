@@ -1,6 +1,6 @@
 import logging
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -19,6 +19,7 @@ from app.keyboards.inline import (
 )
 from app.middlewares.admin_only import AdminFilter
 from app.services.booking import admin_book_external
+from app.services.error_reporter import report_error
 from app.utils.dates import fmt_date, today_msk
 
 _log = logging.getLogger(__name__)
@@ -119,7 +120,7 @@ async def receive_name(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(ExtBook.waiting_for_name, ConfirmCB.filter(F.kind == "bookext"))
 async def on_confirm(
-    cq: CallbackQuery, callback_data: ConfirmCB, state: FSMContext
+    cq: CallbackQuery, callback_data: ConfirmCB, state: FSMContext, bot: Bot
 ) -> None:
     data = await state.get_data()
     if callback_data.action == "no":
@@ -147,8 +148,12 @@ async def on_confirm(
         await cq.message.answer("Админ-меню:", reply_markup=admin_menu())  # type: ignore[union-attr]
         await cq.answer()
         return
-    except Exception:
+    except Exception as e:
         _log.exception("admin_book_external failed")
+        await report_error(
+            bot, e, where="admin.book_external.on_confirm",
+            extra=f"slot_id={callback_data.id} client={client_name}",
+        )
         await state.clear()
         await cq.message.edit_text(  # type: ignore[union-attr]
             "Не получилось записать (ошибка БД или Sheets)."

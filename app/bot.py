@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ErrorEvent
 
 from app.config import settings
 from app.db import init_db
@@ -14,6 +15,7 @@ from app.handlers.admin import delete as adm_delete
 from app.handlers.admin import view_dates as adm_view
 from app.handlers.client import book, browse, feedback, my_bookings, subscribe
 from app.middlewares.user_ctx import UserCtxMiddleware
+from app.services.error_reporter import report_error
 from app.services.scheduler import create_scheduler, purge_past_dates
 from app.utils.logging import setup_logging
 
@@ -48,7 +50,15 @@ async def main() -> None:
     dp.include_router(feedback.router)
     dp.include_router(subscribe.router)
 
-    scheduler = create_scheduler()
+    @dp.errors()
+    async def on_global_error(event: ErrorEvent) -> None:
+        upd_id = event.update.update_id if event.update is not None else "?"
+        log.exception(
+            "unhandled error on update=%s: %s", upd_id, event.exception
+        )
+        await report_error(bot, event.exception, where=f"unhandled:update={upd_id}")
+
+    scheduler = create_scheduler(bot)
     scheduler.start()
     log.info("scheduler started; daily purge at 00:05 MSK")
 

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     sheets_credentials_path: str = "/app/credentials/gsheets.json"
     db_path: str = "/app/data/lubabot.db"
     log_level: str = "INFO"
+    error_report_username: str = "mashakon"
 
     @field_validator("admin_usernames", mode="before")
     @classmethod

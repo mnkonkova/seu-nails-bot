@@ -20,6 +20,7 @@ from app.keyboards.inline import (
 )
 from app.middlewares.admin_only import AdminFilter
 from app.services.booking import create_date
+from app.services.error_reporter import report_error
 from app.services.notify import broadcast_new_date
 from app.utils.dates import fmt_date, parse_date, today_msk
 
@@ -117,8 +118,9 @@ async def on_done(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
         await cq.message.edit_text(f"Дата {fmt_date(day)} уже существует.")  # type: ignore[union-attr]
         await cq.answer()
         return
-    except Exception:
+    except Exception as e:
         _log.exception("create_date failed for %s", day)
+        await report_error(bot, e, where="admin.add_date.on_done", extra=f"day={day}")
         await state.clear()
         await cq.message.edit_text("Не получилось создать дату (ошибка Sheets или БД).")  # type: ignore[union-attr]
         await cq.message.answer("Админ-меню:", reply_markup=admin_menu())  # type: ignore[union-attr]

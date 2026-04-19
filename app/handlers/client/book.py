@@ -1,11 +1,12 @@
 import logging
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
 
 from app.db import AlreadyBooked, SlotDateRepo, SlotNotFound, SlotRepo, session_scope
 from app.keyboards.inline import ConfirmCB, SlotCB, confirm_kb
 from app.services.booking import book_slot
+from app.services.error_reporter import report_error
 from app.utils.dates import fmt_date
 
 _log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ async def show_agreement(cq: CallbackQuery, callback_data: SlotCB) -> None:
 
 
 @router.callback_query(ConfirmCB.filter(F.kind == "book"))
-async def on_confirm_book(cq: CallbackQuery, callback_data: ConfirmCB) -> None:
+async def on_confirm_book(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot) -> None:
     if callback_data.action == "no":
         await cq.message.edit_text("Бронирование отменено.")  # type: ignore[union-attr]
         await cq.answer()
@@ -48,8 +49,10 @@ async def on_confirm_book(cq: CallbackQuery, callback_data: ConfirmCB) -> None:
         await cq.message.edit_text("Окно больше не существует.")  # type: ignore[union-attr]
         await cq.answer()
         return
-    except Exception:
+    except Exception as e:
         _log.exception("book_slot failed")
+        await report_error(bot, e, where="client.book.on_confirm_book",
+                           extra=f"slot_id={callback_data.id} tg_id={user.id}")
         await cq.message.edit_text("Не получилось записаться. Попробуй ещё раз.")  # type: ignore[union-attr]
         await cq.answer()
         return

@@ -26,6 +26,7 @@ from app.services.booking import (
     delete_date,
     delete_slot,
 )
+from app.services.error_reporter import report_error
 from app.utils.dates import fmt_date, today_msk
 
 _log = logging.getLogger(__name__)
@@ -160,8 +161,10 @@ async def on_confirm_clear(cq: CallbackQuery, callback_data: ConfirmCB, bot: Bot
         await cq.message.edit_text("Это окно уже свободно.")  # type: ignore[union-attr]
         await cq.answer()
         return
-    except Exception:
+    except Exception as e:
         _log.exception("admin_clear_slot failed")
+        await report_error(bot, e, where="admin.delete.on_confirm_clear",
+                           extra=f"slot_id={callback_data.id}")
         await cq.message.edit_text("Ошибка при освобождении окна.")  # type: ignore[union-attr]
         await cq.answer()
         return
@@ -218,8 +221,10 @@ async def on_confirm_deldate(cq: CallbackQuery, callback_data: ConfirmCB, bot: B
         return
     try:
         ok, notifications = await delete_date(callback_data.id)
-    except Exception:
+    except Exception as e:
         _log.exception("delete_date failed")
+        await report_error(bot, e, where="admin.delete.on_confirm_deldate",
+                           extra=f"date_id={callback_data.id}")
         await cq.message.edit_text("Ошибка при удалении (БД или Sheets).")  # type: ignore[union-attr]
         await cq.answer()
         return
@@ -239,8 +244,10 @@ async def on_confirm_delslot(cq: CallbackQuery, callback_data: ConfirmCB, bot: B
         return
     try:
         ok, notification = await delete_slot(callback_data.id)
-    except Exception:
+    except Exception as e:
         _log.exception("delete_slot failed")
+        await report_error(bot, e, where="admin.delete.on_confirm_delslot",
+                           extra=f"slot_id={callback_data.id}")
         await cq.message.edit_text("Ошибка при удалении (БД или Sheets).")  # type: ignore[union-attr]
         await cq.answer()
         return

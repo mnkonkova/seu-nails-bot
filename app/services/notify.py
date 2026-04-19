@@ -7,6 +7,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 
 from app.db import UserRepo, session_scope
+from app.services.error_reporter import report_error
 
 _log = logging.getLogger(__name__)
 _SEND_INTERVAL = 0.05  # ~20 msg/s, well under Telegram's 30/s global broadcast cap
@@ -64,4 +65,14 @@ async def broadcast_new_date(bot: Bot, day: date) -> BroadcastStats:
         "broadcast day=%s total=%d sent=%d failed=%d unsubscribed=%d",
         day, len(tg_ids), stats.sent, stats.failed, stats.unsubscribed,
     )
+    if stats.failed > 0:
+        try:
+            await report_error(
+                bot,
+                RuntimeError(f"broadcast failed for {stats.failed}/{len(tg_ids)} users"),
+                where="notify.broadcast_new_date",
+                extra=f"day={day} sent={stats.sent} failed={stats.failed}",
+            )
+        except Exception:
+            _log.exception("failed to send broadcast error report")
     return stats
