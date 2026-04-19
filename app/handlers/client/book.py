@@ -37,7 +37,9 @@ async def on_confirm_book(cq: CallbackQuery, callback_data: ConfirmCB) -> None:
         return
     user = cq.from_user
     try:
-        slot = await book_slot(callback_data.id, user.id, user.username)
+        slot = await book_slot(
+            callback_data.id, user.id, user.username, user.first_name, user.last_name
+        )
     except AlreadyBooked:
         await cq.message.edit_text("Увы, это окно уже заняли.")  # type: ignore[union-attr]
         await cq.answer()

@@ -78,7 +78,13 @@ async def delete_slot(slot_id: int) -> bool:
         return True
 
 
-async def book_slot(slot_id: int, tg_id: int, username: str | None) -> Slot:
+async def book_slot(
+    slot_id: int,
+    tg_id: int,
+    username: str | None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+) -> Slot:
     """Atomically mark slot as booked in DB and mirror to Sheets."""
     async with session_scope() as s:
         await UserRepo(s).upsert(tg_id, username)
@@ -87,7 +93,13 @@ async def book_slot(slot_id: int, tg_id: int, username: str | None) -> Slot:
         if date_rec is None:
             raise SlotNotFound(slot_id)
         await sheets.write_booking(
-            date_rec.sheet_id, slot.row_index, username, tg_id, slot.booked_at  # type: ignore[arg-type]
+            date_rec.sheet_id,
+            slot.row_index,
+            username,
+            tg_id,
+            first_name,
+            last_name,
+            slot.booked_at,  # type: ignore[arg-type]
         )
         return slot
 
@@ -103,12 +115,20 @@ async def unbook_slot(slot_id: int, tg_id: int) -> Slot:
         return slot
 
 
-async def submit_feedback(tg_id: int, username: str | None, text: str) -> Feedback:
+async def submit_feedback(
+    tg_id: int,
+    username: str | None,
+    text: str,
+    first_name: str | None = None,
+    last_name: str | None = None,
+) -> Feedback:
     """Persist feedback to DB and append to the Feedback sheet."""
     async with session_scope() as s:
         await UserRepo(s).upsert(tg_id, username)
         fb = await FeedbackRepo(s).create(tg_id, text)
-        row_idx = await sheets.append_feedback(username, tg_id, text, fb.created_at)
+        row_idx = await sheets.append_feedback(
+            username, tg_id, first_name, last_name, text, fb.created_at
+        )
         if row_idx is not None:
             fb.sheet_row_index = row_idx
             await s.flush()

@@ -42,7 +42,9 @@ async def receive_feedback(message: Message, state: FSMContext) -> None:
         return
     user = message.from_user
     try:
-        await submit_feedback(user.id, user.username, text)  # type: ignore[union-attr]
+        await submit_feedback(  # type: ignore[union-attr]
+            user.id, user.username, text, user.first_name, user.last_name
+        )
     except Exception:
         _log.exception("submit_feedback failed")
         await message.answer("Не получилось сохранить отзыв. Попробуй позже.")
